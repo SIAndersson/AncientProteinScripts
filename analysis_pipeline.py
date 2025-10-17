@@ -788,6 +788,10 @@ def main():
     """Main pipeline for protein design validation and analysis."""
     args = parse_arguments()
 
+    # Make sure USalign path is valid
+    if not Path(args.usalign_path).exists():
+        raise FileNotFoundError(f"USalign path not found: {args.usalign_path}")
+    
     # Stage 1: Analyze designed structures
     results_csv = f"{args.output_prefix}_results.csv"
 
