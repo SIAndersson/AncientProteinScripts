@@ -122,11 +122,6 @@ def parse_arguments():
     return parser.parse_args()
 
 
-# ============================================================================
-# Utility Functions
-# ============================================================================
-
-
 def flatten_chain(matrix):
     """Flatten a nested list structure."""
     import itertools
@@ -143,11 +138,6 @@ def wrap_labels(ax, width, break_long_words=True):
             textwrap.fill(text, width=width, break_long_words=break_long_words)
         )
     ax.set_xticklabels(labels, rotation=0)
-
-
-# ============================================================================
-# Structure Analysis Functions
-# ============================================================================
 
 
 def calculate_tm_score(usalign_path, predicted_pdb, reference_pdb):
@@ -188,11 +178,6 @@ def calculate_tm_score(usalign_path, predicted_pdb, reference_pdb):
         print(f"Error running USalign: {e}")
         print("Make sure USalign is installed and in PATH")
         return None, None
-
-
-# ============================================================================
-# Secondary Structure Functions
-# ============================================================================
 
 
 def shorten_secondary_structure(ss):
@@ -260,11 +245,6 @@ def get_dssp(pdb_file, simplify=False):
         return simplified_string
 
 
-# ============================================================================
-# Sequence Processing Functions
-# ============================================================================
-
-
 def get_best_sequences(path):
     """
     Extract best sequences from ProteinMPNN output files.
@@ -324,11 +304,6 @@ def get_best_sequence_for_file(path):
     best_name = pname[best_i]
 
     return best_seq, best_name.replace(".fa", ".pdb")
-
-
-# ============================================================================
-# ESMFold Structure Prediction
-# ============================================================================
 
 
 def initialize_esmfold_model(gpu_id=0):
@@ -539,11 +514,6 @@ def validate_structure_with_esmfold(path, model, tokenizer, usalign_path):
     return results
 
 
-# ============================================================================
-# Data Collection and Analysis
-# ============================================================================
-
-
 def collect_designed_structures(data_path):
     """
     Collect all designed protein structures from the data directory.
@@ -627,6 +597,7 @@ def analyze_designed_structures(
                 and (tm_score is not None and tm_score >= tm_threshold)
                 and (rmsd is not None and rmsd <= rmsd_threshold)
             )
+            
             """
             Note that the accepted column is very heavily filtered when you use both TM-score and RMSD. In reality, just the DSSP match is considered for structures at this stage, and TM-score and RMSD become more relevant later in the analysis (the part that is mostly manual work and inspection). At this point, we just want to know if the secondary structure is preserved (indicating the correct fold), so the DSSP match is the key criterion. Predicting the structure at the later stage is more important than how close it is to the original template, as long as the overall fold is maintained. This is also an interesting thing to visualise, as it shows the difference in the different metrics and their impact on acceptance.
             """
@@ -693,11 +664,6 @@ def validate_structures_with_esmfold(df_accept, output_csv, usalign_path, gpu_id
     df_struct.to_csv(output_csv, index=False)
 
     return df_struct
-
-
-# ============================================================================
-# Visualization Functions
-# ============================================================================
 
 
 def plot_structure_analysis(df, output_prefix, tm_threshold=0.5, rmsd_threshold=5.0):
@@ -816,11 +782,6 @@ def plot_esmfold_validation(df_struct, output_prefix):
             f"{output_prefix}_ESMFold_TMscore_analysis.pdf", bbox_inches="tight"
         )
         plt.close()
-
-
-# ============================================================================
-# Main Pipeline
-# ============================================================================
 
 
 def main():
