@@ -1,7 +1,17 @@
 [project]
 name = "ancientproteinscripts"
 version = "0.1.0"
-description = "Add your description here"
+description = "Scripts for designing and analyzing ancient protein sequences."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "biopython>=1.85",
+    "biotite>=1.5.0",
+    "matplotlib>=3.10.7",
+    "numpy>=2.3.4",
+    "pandas>=2.3.3",
+    "seaborn>=0.13.2",
+    "torch>=2.9.0",
+    "tqdm>=4.67.1",
+    "transformers>=4.57.1",
+]
