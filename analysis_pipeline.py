@@ -75,8 +75,7 @@ def parse_arguments():
     parser.add_argument(
         "--data_path",
         type=str,
-        required=False,
-        default="/mnt/nasdata/sofia/Protein_Evo/",
+        required=True,
         help="Path to protein evolution data directory.",
     )
     parser.add_argument(
@@ -628,6 +627,9 @@ def analyze_designed_structures(
                 and (tm_score is not None and tm_score >= tm_threshold)
                 and (rmsd is not None and rmsd <= rmsd_threshold)
             )
+            """
+            Note that the accepted column is very heavily filtered when you use both TM-score and RMSD. In reality, just the DSSP match is considered for structures at this stage, and TM-score and RMSD become more relevant later in the analysis (the part that is mostly manual work and inspection). At this point, we just want to know if the secondary structure is preserved (indicating the correct fold), so the DSSP match is the key criterion. Predicting the structure at the later stage is more important than how close it is to the original template, as long as the overall fold is maintained. This is also an interesting thing to visualise, as it shows the difference in the different metrics and their impact on acceptance.
+            """
 
             # Store results
             tm_scores.append(tm_score if tm_score is not None else np.nan)
