@@ -11,6 +11,7 @@ from itertools import islice
 from tqdm import tqdm
 from Bio import PDB
 from Bio.PDB import PDBParser
+import argparse
 
 import torch
 from transformers import AutoTokenizer, EsmForProteinFolding
@@ -217,7 +218,7 @@ def get_best_seq(fasta_path):
     return best_seq, score[best_i]
 
 
-def run_redesign(df, out_dir="redesign_data"):
+def run_redesign(df, out_dir, rfdiffusion_path):
     if not Path(out_dir).exists():
         Path(out_dir).mkdir(parents=True, exist_ok=True)
 
@@ -239,10 +240,8 @@ def run_redesign(df, out_dir="redesign_data"):
         tqdm.write(f"Redesigning {template} for class {class_name}")
 
         design_command = (
-            "python /home/sofia/RFDiffusion/RFdiffusion/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/protein_mpnn_run.py --num_seq_per_target=20 --batch_size=10 --out_folder="
-            + odir
-            + " --pdb_path="
-            + template
+            f"python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/protein_mpnn_run.py "
+            f"--num_seq_per_target=20 --batch_size=10 --out_folder={odir} --pdb_path={template}"
         )
 
         with open(os.path.join(odir, "design.log"), "w") as log_file:
@@ -274,10 +273,35 @@ def run_redesign(df, out_dir="redesign_data"):
     return df
 
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Protein redesign pipeline with ESMFold evaluation"
+    )
+    parser.add_argument(
+        "--csv_path",
+        type=str,
+        required=True,
+        help="Path to input CSV file containing protein structures",
+    )
+    parser.add_argument(
+        "--out_dir",
+        type=str,
+        required=True,
+        help="Output directory for redesign results",
+    )
+    parser.add_argument(
+        "--rfdiffusion_path",
+        type=str,
+        required=True,
+        help="Path to RFDiffusion installation directory",
+    )
+    args = parser.parse_args()
+    return args.csv_path, args.out_dir, args.rfdiffusion_path
+
+
 if __name__ == "__main__":
-    # Paths
-    csv_path = "/home/sofia/ProteinEvoScripts/protein_structure_evaluation_dssp.csv"
-    out_dir = "/home/sofia/ProteinEvoScripts/redesign_data"
+    # Parse command-line arguments
+    csv_path, out_dir, rfdiffusion_path = parse_arguments()
 
     df = extract_csv(csv_path)
     print("Initial DataFrame:")
@@ -292,8 +316,9 @@ if __name__ == "__main__":
     # Run redesign process
     print("\nStarting redesign process...")
     print("=" * 50)
-    df_redesign = run_redesign(df_fresh, out_dir)
+    df_redesign = run_redesign(df_fresh, out_dir, rfdiffusion_path)
 
-    # Save the updated DataFrame (optional)
-    df_redesign.to_csv(out_dir + "/protein_evo_results_redesign.csv", index=False)
-
+    # Save the updated DataFrame
+    output_csv = Path(out_dir) / "protein_evo_results_redesign.csv"
+    df_redesign.to_csv(output_csv, index=False)
+    print(f"\nResults saved to: {output_csv}")

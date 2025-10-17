@@ -16,28 +16,31 @@ def parse_arguments():
     parser.add_argument(
         "--scope_database",
         type=str,
-        required=False,
-        default="/home/shared/databases/SCOPe/unrelaxed/native/",
+        required=True,
         help="Path to SCOPe structure database.",
     )
     parser.add_argument(
         "--out_path",
         type=str,
-        required=False,
-        default="/mnt/nasdata/sofia/Protein_Evo/",
+        required=True,
         help="Where to store the output files.",
     )
     parser.add_argument(
         "--astral_path",
         type=str,
-        required=False,
-        default="/home/sofia/RFDiffusion/RFdiffusion/astral-scopedom-seqres-gd-sel-gs-bib-40-2.08.fa",
+        required=True,
         help="Path to SCOPe ASTRAL fasta file.",
+    )
+    parser.add_argument(
+        "--rfdiffusion_path",
+        type=str,
+        required=True,
+        help="Path to RFdiffusion repository.",
     )
 
     args = parser.parse_args()
 
-    return args.scope_database, args.out_path, args.astral_path
+    return args.scope_database, args.out_path, args.astral_path, args.rfdiffusion_path
 
 
 def extract_atoms_from_model(input_pdb_file, output_pdb_file, target_model_id):
@@ -257,7 +260,7 @@ def validate_sequences(outdir):
 
 
 def main():
-    scopepath, out_prefix, astral_path = parse_arguments()
+    scopepath, out_prefix, astral_path, rfdiffusion_path = parse_arguments()
     df = extract_scope(astral_path)
 
     scope_names = df["SCOPe name"].tolist()
@@ -302,13 +305,13 @@ def main():
 
         # STRUCTURE DESIGN
         command1 = (
-            "./helper_scripts/make_secstruc_adj.py --input_pdb "
+            f"{rfdiffusion_path}/helper_scripts/make_secstruc_adj.py --input_pdb "
             + ipdb
             + " --out_dir "
             + oscaff
         )
         command2 = (
-            "./scripts/run_inference.py inference.output_prefix="
+            f"{rfdiffusion_path}/scripts/run_inference.py inference.output_prefix="
             + opath
             + " scaffoldguided.scaffoldguided=True scaffoldguided.target_pdb=False scaffoldguided.scaffold_dir="
             + oscaff
@@ -319,7 +322,7 @@ def main():
 
         # SEQUENCE DESIGN
         bias_command = (
-            "python ./sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/helper_scripts/make_bias_AA.py --output_path "
+            f"python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/helper_scripts/make_bias_AA.py --output_path "
             + odir
             + "/bias.jsonl \
             --AA_list 'N K Q R C H F M Y W'\
@@ -329,7 +332,7 @@ def main():
         subprocess.run(bias_command, shell=True)
 
         json_command = (
-            "python ./sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/helper_scripts/parse_multiple_chains.py --input_path "
+            f"python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/helper_scripts/parse_multiple_chains.py --input_path "
             + odir
             + " --output_path "
             + odir
@@ -339,7 +342,7 @@ def main():
         subprocess.run(json_command, shell=True)
 
         command3 = (
-            "python ./sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/protein_mpnn_run.py --num_seq_per_target=20 --batch_size=10 --out_folder="
+            f"python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/protein_mpnn_run.py --num_seq_per_target=20 --batch_size=10 --out_folder="
             + odir
             + " --jsonl_path="
             + odir
