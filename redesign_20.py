@@ -6,17 +6,13 @@ import os
 from pathlib import Path
 import subprocess
 import re
-import itertools
 from itertools import islice
 from tqdm import tqdm
-from Bio import PDB
-from Bio.PDB import PDBParser
 import argparse
 
 import torch
 from transformers import AutoTokenizer, EsmForProteinFolding
 import warnings
-import biotite.structure.io as bsio
 import tempfile
 
 warnings.filterwarnings("ignore")

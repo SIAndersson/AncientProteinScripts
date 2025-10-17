@@ -112,7 +112,8 @@ Redesign accepted structures using all 20 amino acids for comparison:
 ```bash
 python redesign_20.py \
     --input_csv protein_evo_results.csv \
-    --output_dir /path/to/redesign/output/
+    --output_dir /path/to/redesign/output/ \
+    --rfdiffusion_path /path/to/RFdiffusion
 ```
 
 This uses the csv generated from the previous steps to access the templates. In the end, only templates that have the correct secondary structure are considered for the comparison in order to keep it fair.
