@@ -21,57 +21,83 @@ import tempfile
 warnings.filterwarnings("ignore")
 
 # Set visual standards
-plt.rcParams.update({
-    'font.size': 10,
-    'font.family': 'sans-serif',
-    'font.sans-serif': ['Helvetica'],
-    'axes.linewidth': 0.5,
-    'axes.labelsize': 11,
-    'axes.titlesize': 12,
-    'xtick.labelsize': 10,
-    'ytick.labelsize': 10,
-    'legend.fontsize': 10,
-    'legend.title_fontsize': 12,
-    'figure.dpi': 300,
-    'savefig.dpi': 600,
-    'axes.spines.top': False,
-    'axes.spines.right': False,
-    'axes.grid': False,
-})
+plt.rcParams.update(
+    {
+        "font.size": 10,
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Helvetica"],
+        "axes.linewidth": 0.5,
+        "axes.labelsize": 11,
+        "axes.titlesize": 12,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+        "legend.title_fontsize": 12,
+        "figure.dpi": 300,
+        "savefig.dpi": 600,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": False,
+    }
+)
 
 
 # Set colour palette to colorblind-friendly colours
-colours = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
-                 '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+colours = [
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
+]
 sns.set_palette(colours)
 
 usalign_path = str(Path.home() / "USalign")
 
 # ESMFold atom order mapping (14 atoms per residue)
-ATOM_NAMES = ['N', 'CA', 'C', 'O', 'CB', 'OG', 'OG1', 'CG', 'CG1', 'CG2', 'CD', 'CD1', 'CD2', 'CE']
-STANDARD_ATOMS = ['N', 'CA', 'C', 'O', 'CB']
+ATOM_NAMES = [
+    "N",
+    "CA",
+    "C",
+    "O",
+    "CB",
+    "OG",
+    "OG1",
+    "CG",
+    "CG1",
+    "CG2",
+    "CD",
+    "CD1",
+    "CD2",
+    "CE",
+]
+STANDARD_ATOMS = ["N", "CA", "C", "O", "CB"]
 
 print("Loading ESM model...")
 model = EsmForProteinFolding.from_pretrained("facebook/esmfold_v1").to("cuda:0")
 tokenizer = AutoTokenizer.from_pretrained("facebook/esmfold_v1")
 print("ESM model loaded successfully.")
 
+
 def extract_csv(path):
     df = pd.read_csv(path)
     return df
 
-def get_fresh_df(df):
-    template_list = df['Path'].tolist()
-    class_list = df['Class'].tolist()
 
-    df_fresh = pd.DataFrame({
-        'Template': template_list,
-        'Fold': class_list
-    })
+def get_fresh_df(df):
+    template_list = df["Path"].tolist()
+    class_list = df["Class"].tolist()
+
+    df_fresh = pd.DataFrame({"Template": template_list, "Fold": class_list})
     return df_fresh
 
-def esm_inference(sequence=None):
 
+def esm_inference(sequence=None):
     inputs = tokenizer([sequence], return_tensors="pt", add_special_tokens=False)
     inputs = inputs.to("cuda:0")
 
@@ -91,7 +117,7 @@ def extract_ca_atoms_from_positions(positions):
     C-alpha is typically at index 1
     """
     # Remove batch dimension and extract CA atoms (index 1)
-    ca_coords = positions[0, 0, :, 1, :] # Shape: [seq_len, 3]
+    ca_coords = positions[0, 0, :, 1, :]  # Shape: [seq_len, 3]
     return ca_coords
 
 
@@ -99,13 +125,16 @@ def write_coords_to_pdb(coords, sequence, filename):
     """
     Write coordinates to PDB format for TM-score calculation
     """
-    with open(filename, 'w') as f:
+    with open(filename, "w") as f:
         f.write("REMARK Generated structure\n")
         for i, (coord, aa) in enumerate(zip(coords, sequence)):
-            f.write(f"ATOM  {i+1:5d}  CA  {aa} A{i+1:4d}    "
-                   f"{coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}"
-                   f"  1.00 50.00           C\n")
+            f.write(
+                f"ATOM  {i + 1:5d}  CA  {aa} A{i + 1:4d}    "
+                f"{coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}"
+                f"  1.00 50.00           C\n"
+            )
         f.write("END\n")
+
 
 def calculate_tm_score(predicted_pdb, reference_pdb):
     """
@@ -124,18 +153,19 @@ def calculate_tm_score(predicted_pdb, reference_pdb):
             r"TM-score=\s+([0-9.]+) \(normalized by length of Structure_2",
             output,
         )
-        tm_score = float(tm_match.group(1)) if tm_match else None 
-        
+        tm_score = float(tm_match.group(1)) if tm_match else None
+
         # Parse RMSD
         rmsd_match = re.search(r"RMSD=\s+([0-9.]+)", output)
         rmsd = float(rmsd_match.group(1)) if rmsd_match else None
-        
+
         return tm_score, rmsd
-        
+
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"Error running TMscore: {e}")
         print("Make sure TMscore is installed and in PATH")
         return None
+
 
 def compare_structures(sequence, reference_pdb_file):
     """
@@ -143,24 +173,27 @@ def compare_structures(sequence, reference_pdb_file):
     """
     # Get prediction
     plddt, positions = esm_inference(sequence)
-    
+
     # Extract C-alpha coordinates from prediction
     pred_ca_coords = extract_ca_atoms_from_positions(positions)
-    
+
     # Calculate TM-score (requires external TMscore program)
     tm_score = None
     rmsd = None
     try:
         # Create temporary PDB file for predicted structure
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb', delete=False) as tmp_pred:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".pdb", delete=False
+        ) as tmp_pred:
             write_coords_to_pdb(pred_ca_coords, sequence, tmp_pred.name)
             tm_score, rmsd = calculate_tm_score(tmp_pred.name, reference_pdb_file)
-            #print(f"TM-score: {tm_score}, RMSD: {rmsd}")
+            # print(f"TM-score: {tm_score}, RMSD: {rmsd}")
             os.unlink(tmp_pred.name)  # Clean up
     except Exception as e:
         print(f"TM-score calculation failed: {e}")
-    
+
     return tm_score, rmsd, plddt.mean() * 100  # Return mean PLDDT as percentage
+
 
 def get_best_seq(fasta_path):
     with open(fasta_path) as f:
@@ -183,6 +216,7 @@ def get_best_seq(fasta_path):
 
     return best_seq, score[best_i]
 
+
 def run_redesign(df, out_dir="redesign_data"):
     if not Path(out_dir).exists():
         Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -194,13 +228,13 @@ def run_redesign(df, out_dir="redesign_data"):
     rmsds = []
 
     for index, row in tqdm(df.iterrows(), total=len(df), desc="Redesigning"):
-        template = row['Template']
-        class_name = row['Fold']
+        template = row["Template"]
+        class_name = row["Fold"]
 
         odir = out_dir + "/" + class_name + "/"
         if not Path(odir).exists():
             Path(odir).mkdir(parents=True, exist_ok=True)
-        
+
         # Simulate redesign process
         tqdm.write(f"Redesigning {template} for class {class_name}")
 
@@ -212,7 +246,9 @@ def run_redesign(df, out_dir="redesign_data"):
         )
 
         with open(os.path.join(odir, "design.log"), "w") as log_file:
-            subprocess.run(design_command, shell=True, stdout=log_file, stderr=subprocess.STDOUT)
+            subprocess.run(
+                design_command, shell=True, stdout=log_file, stderr=subprocess.STDOUT
+            )
 
         # Get best sequence
         fasta_path = odir + "seqs/" + Path(template).stem + ".fa"
@@ -225,7 +261,7 @@ def run_redesign(df, out_dir="redesign_data"):
         rmsds.append(rmsd)
 
         torch.cuda.empty_cache()
-        
+
         best_seqs.append(best_seq)
         best_scores.append(best_score)
 
@@ -237,6 +273,7 @@ def run_redesign(df, out_dir="redesign_data"):
 
     return df
 
+
 if __name__ == "__main__":
     # Paths
     csv_path = "/home/sofia/ProteinEvoScripts/protein_structure_evaluation_dssp.csv"
@@ -246,7 +283,7 @@ if __name__ == "__main__":
     print("Initial DataFrame:")
     print("=" * 50)
     print(df.head())
-    
+
     df_fresh = get_fresh_df(df)
     print("Fresh DataFrame:")
     print("=" * 50)
@@ -256,7 +293,7 @@ if __name__ == "__main__":
     print("\nStarting redesign process...")
     print("=" * 50)
     df_redesign = run_redesign(df_fresh, out_dir)
-    
+
     # Save the updated DataFrame (optional)
     df_redesign.to_csv(out_dir + "/protein_evo_results_redesign.csv", index=False)
-        
+
