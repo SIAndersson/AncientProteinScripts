@@ -55,6 +55,10 @@ We use the version that comes with RFdiffusion. Can also be installed separately
 
 For TM-score and RMSD calculations. Install using the [Github instructions](https://github.com/pylelab/USalign).
 
+##### TMalign
+
+Download from [Zhang Lab](https://zhanggroup.org/TM-align/) and ensure it's in your PATH. This package is used in mutation simulation script, if not running these simulations, can be omitted.
+
 ##### DSSP (mkdssp)
 
 Used for protein secondary structure analysis. Please note that there are many different versions of DSSP. Use whatever you have available. The most recent version of DSSP can be found [here](https://github.com/PDB-REDO/dssp).
@@ -161,3 +165,61 @@ output_directory/
 ├── ...
 └── aggregated_results.csv
 ```
+### Output Files
+
+- **Individual PDB files**: `mutant_N.pdb` - 3D structures for each mutation count
+- **Per-run CSV**: `mutation_results.csv` - Detailed results for each run
+- **Aggregated CSV**: `aggregated_results.csv` - Combined results from all runs
+
+### CSV Columns
+
+- `n_mutations`: Number of mutations introduced
+- `mutations`: List of (position, original_aa, new_aa) tuples
+- `mutant_sequence`: Full mutated protein sequence
+- `tm_score`: TM-score from TMalign comparison
+- `rmsd`: Root Mean Square Deviation from Biopython
+- `run`: Run number (in aggregated results)
+
+## Raw Results
+
+The `raw_results/` directory contains CSV files with detailed simulation outputs from running the mutation simulation scripts on selected proteins. These files represent the raw data produced by the simulation process and include:
+
+### File Naming Convention
+Files follow the pattern: `raw_results_{Protein}_{Type}_{Alphabet}_{Runs}.csv`
+
+- **Protein**: `Ap3`, `Fd3`, or `Rn2` (protein identifiers)
+- **Type**: `Design_10`, `Design_20`, or `WT` (design variants or wild-type)
+- **Alphabet**: `All_20` or `Ancient_10` (amino acid alphabet used)
+
+### Content Structure
+Each raw results file contains:
+- Individual mutation results from multiple simulation runs
+- TM-scores and RMSD values for structural comparisons
+- Detailed mutation information (position, original amino acid, new amino acid)
+- Complete mutant sequences and structural predictions
+
+## Statistics
+
+The `statistics/` directory contains statistical analysis files that compare simulation results across different experimental conditions:
+
+### Available Statistical Comparisons
+
+1. **`statistical_comparison_proteins_all_20_alphabet.csv`**
+   - Statistical analysis of simulations using the full 20-amino acid alphabet
+
+2. **`statistical_comparison_proteins_ancient_10_alphabet.csv`**
+   - Statistical analysis of simulations using the limited 10-amino acid alphabet
+
+3. **`statistical_comparison_two_alphabets.csv`**
+   - Direct statistical comparison between 10-amino acid and 20-amino acid alphabet simulations
+
+
+### Memory Management
+- Scripts include aggressive GPU memory cleanup
+- Sequential processing (`--max_workers 1`) recommended for memory-constrained systems
+- Each run loads the ESMFold model independently
+
+### Computational Requirements
+- **GPU**: CUDA-compatible GPU strongly recommended
+- **RAM**: 8GB+ recommended for typical proteins
+- **Storage**: ~1-10MB per mutation depending on protein size
