@@ -8,6 +8,7 @@ The general pipeline is:
 2. Designs sequences with ProteinMPNN restricted to 10 amino acids (excluding N, K, Q, R, C, H, F, M, Y, W)
 3. Validates designs through structural metrics (TM-score, RMSD, DSSP)
 4. Predicts structures using ESMFold
+5. Simulation of mutational robustness of the folds either with rectricted 10 amino acids or all 20
 
 ### Repo structure
 
@@ -15,8 +16,13 @@ The general pipeline is:
 ├── run_design_pipeline.py # Main pipeline: structure generation & sequence design
 ├── analysis_pipeline.py # Filtering, structural analysis, and visualization
 ├── redesign_20.py # Redesign with 20 amino acids (assumes structs have been generated)
+├── mutations_simulation_10E.py # Mutational robustness simulations script with 10 amino acids
+├── mutations_simulation_20F.py #  Mutational robustness simulations script with 20 amino acids
 ├── pyproject.toml # Python dependencies
+├── raw_results.zip # Folder with raw results from mutation simulations
+├── statistics.zip # Statistical comparison results between groups sompared in the paper
 └── README.md # This file
+
 ```
 
 ### Installation
@@ -118,19 +124,40 @@ python redesign_20.py \
 
 This uses the csv generated from the previous steps to access the templates. In the end, only templates that have the correct secondary structure are considered for the comparison in order to keep it fair.
 
-### Output data structure
+#### 4. Simulation of mutational robustness of the fold
+
+Generate random substitutions of AAs in original structure and predict of the mutated structure with ESMFold. Calculate RMSD and TM-score against original .pdb structure. Script mutations_simulation_10E.py is generating random substitutions of amino acids from 10 subset, mutations_simulation_20F.py uses full 20 alphabet for simulation, description below is for 10E script, but they both work with the same logic.
+
+```bash
+python mutations_simulation_10E.py \
+    --pdb pdb_file.pdb \
+    --fasta fasta_file.fasta \
+    --outdir /path/to/output/directory \
+    --n_runs 20 \
+    --max_workers 1
+```
+Parameters:
+
+- `--pdb`: Original PDB structure
+- `--fasta`: Fasta file with the original sequence
+- `--outdir`: Directory for storing the outputs
+- `--n_runs`: Number of independent simulation runs
+- `--max_workers`: Maximum number of parallel workers
+
+## Output Structure
 
 ```
-output_path/
-├── TIM-barrel_c.1/
-│   ├── d1a53a_.pdb                 # Template structure
-│   ├── d1a53a_/                    # Design directory
-│   │   ├── test_d1a53a_*.pdb       # Generated structures
-│   │   ├── seqs/                   # ProteinMPNN sequences
-│   │   │   └── *.fa                # FASTA files with scores
-│   │   └── *_ESMfold.pdb          # ESMFold predictions
-│   └── SStruct/                    # Secondary structure files
-├── Rossman-fold_c.2/
-│   └── ...
-└── ...
+output_directory/
+├── run_1/
+│   ├── mutant_1.pdb
+│   ├── mutant_2.pdb
+│   ├── ...
+│   └── mutation_results.csv
+├── run_2/
+│   ├── mutant_1.pdb
+│   ├── mutant_2.pdb
+│   ├── ...
+│   └── mutation_results.csv
+├── ...
+└── aggregated_results.csv
 ```
