@@ -10,126 +10,136 @@ import pandas as pd
 from tqdm import tqdm
 
 
+# Classes used in the initial study (50–100 residues)
+INITIAL_CLASSES = [37, 4, 1, 2, 58, 23, 55, 40, 66]
+INITIAL_LENGTH_RANGE = (50, 100)
+
+# Additional classes introduced in the extension study (50–150 residues)
+EXTENSION_CLASSES = [3, 26, 36, 67, 94, 84]
+ALL_CLASSES = INITIAL_CLASSES + EXTENSION_CLASSES
+EXTENSION_LENGTH_RANGE = (50, 150)
+
+
 def parse_arguments():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Scaffold-guided protein structure and sequence design pipeline using RFdiffusion and ProteinMPNN."
+    )
 
     parser.add_argument(
         "--scope_database",
         type=str,
         required=True,
-        help="Path to SCOPe structure database.",
+        help=(
+            "Path to the SCOPe structure database directory. "
+            "Expects PDB-style subdirectory layout (e.g. db/ab/d1abc__.ent)."
+        ),
     )
     parser.add_argument(
         "--out_path",
         type=str,
         required=True,
-        help="Where to store the output files.",
+        help="Root output directory. Subdirectories are created per fold class.",
     )
     parser.add_argument(
         "--astral_path",
         type=str,
         required=True,
-        help="Path to SCOPe ASTRAL fasta file.",
+        help="Path to the SCOPe ASTRAL FASTA file used to extract sequences and class annotations.",
     )
     parser.add_argument(
         "--rfdiffusion_path",
         type=str,
         required=True,
-        help="Path to RFdiffusion repository.",
+        help="Path to the RFdiffusion repository root (contains scripts/ and helper_scripts/).",
     )
     parser.add_argument(
         "--rfdiffusion_python_path",
         type=str,
         required=True,
-        help="Path to RFdiffusion Python environment.",
+        help="Path to the Python environment used to run RFdiffusion (e.g. /path/to/conda/envs/rfdiffusion).",
+    )
+    parser.add_argument(
+        "--extension",
+        action="store_true",
+        default=False,
+        help=(
+            "Run the extension study instead of the initial study. "
+            f"Uses length range {EXTENSION_LENGTH_RANGE[0]}–{EXTENSION_LENGTH_RANGE[1]} residues "
+            f"and fold classes {EXTENSION_CLASSES} (excludes initial classes {INITIAL_CLASSES}, "
+            "which were already designed at lengths 50–100)."
+        ),
     )
 
     args = parser.parse_args()
 
-    # Convert all paths to Path objects
     return (
         Path(args.scope_database),
         Path(args.out_path),
         Path(args.astral_path),
         Path(args.rfdiffusion_path),
         Path(args.rfdiffusion_python_path),
+        args.extension,
     )
 
 
 def extract_atoms_from_model(input_pdb_file, output_pdb_file, target_model_id):
-    """
-    Extracts atoms from a specific model in a PDB file and writes them to a new PDB file.
-    Args:
-        input_pdb_file (Path): Path to the input PDB file.
-        output_pdb_file (Path): Path to the output PDB file where the extracted atoms will be written.
-        target_model_id (str): The model ID from which atoms should be extracted.
-    Returns:
-        None
-    """
+    """Extract ATOM records for a single chain from a PDB file.
 
+    Reads until the second MODEL record (if present) and writes only ATOM
+    lines whose chain identifier matches ``target_model_id``.
+
+    Args:
+        input_pdb_file (Path): Input PDB file to read.
+        output_pdb_file (Path): Output PDB file to write.
+        target_model_id (str): Chain ID to extract (e.g. ``"A"``).
+    """
     with open(input_pdb_file, "r") as input_file:
         with open(output_pdb_file, "w") as output_file:
             for line in input_file:
                 if line.startswith("MODEL") and "1" not in line:
                     break
                 if line.startswith("ATOM") and line[21] == target_model_id:
-                    # Extract only the necessary information from the ATOM line
                     output_file.write(line)
 
 
 def sort_list(list1, list2):
-    """
-    Sorts list1 based on the lengths of the elements in list2.
+    """Sort list1 by the lengths of the corresponding elements in list2.
+
     Args:
-        list1 (list): The list to be sorted.
-        list2 (list): The list whose element lengths determine the sort order.
+        list1 (list): List to sort.
+        list2 (list): List whose element lengths determine sort order.
+
     Returns:
-        list: A new list containing the elements of list1 sorted based on the lengths of the corresponding elements in list2.
+        list: Elements of list1 sorted by ascending length of the paired
+        element in list2.
     """
-
     zipped_pairs = zip(list2, list1)
-
     z = [x for _, x in sorted(zipped_pairs, key=len)]
-
     return z
 
 
-def extract_scope(path):
-    """
-    Extracts and processes protein sequences and their classifications from a specified file.
-    This function reads a file containing protein sequences and their SCOPe classifications,
-    extracts relevant sequences and their associated metadata, and returns a DataFrame
-    containing sequences with lengths between 50 and 100 amino acids.
+def extract_scope(path, length_min, length_max):
+    """Parse an ASTRAL FASTA file and return sequences within a length range.
+
+    Sequences are matched against a fixed set of SCOPe fold classes across the
+    a, b, c, and d hierarchies. Results are sorted by ascending
+    sequence length.
+
     Args:
-        path (Path): Path to the ASTRAL fasta file.
+        path (Path): Path to the ASTRAL FASTA file.
+        length_min (int): Minimum sequence length (inclusive).
+        length_max (int): Maximum sequence length (inclusive).
+
     Returns:
-        pd.DataFrame: A DataFrame with the following columns:
-            - 'Length': Length of the protein sequences.
-            - 'Classes': Class identifiers of the protein sequences.
-            - 'Seqs': The protein sequences.
-            - 'Names': Class names derived from the class identifiers.
-            - 'Subclass': Subclass identifiers of the protein sequences.
-            - 'SCOPe name': Names of the protein sequences from the file.
+        pd.DataFrame: DataFrame with columns:
+
+            - Length (int): Sequence length.
+            - Classes (int): SCOPe class number.
+            - Seqs (str): Amino acid sequence.
+            - Names (str): Human-readable fold class name.
+            - Subclass (str): Full SCOPe subclass identifier (e.g. ``c.1.2.3``).
+            - SCOPe name (str): Seven-character SCOPe domain identifier.
     """
-
-    matches = [
-        "c.1.",
-        "c.2.",
-        "c.3.",
-        "c.23.",
-        "c.26.",
-        "c.36.",
-        "c.37.",
-        "c.55.",
-        "c.66.",
-        "c.67.",
-        "c.94.",
-        "d.58",
-        "a.4",
-        "b.40",
-        "b.84",
-    ]
-
     name_dict = {
         "1": "TIM-barrel_c.1",
         "2": "Rossman-fold_c.2",
@@ -211,9 +221,6 @@ def extract_scope(path):
     subclass = np.array(temp_sub)
     names = np.array(temp_name)
 
-    res = min(temp_seqs, key=len)
-    arg = np.argwhere(seqs == res)
-
     sort_seqs = np.array(sorted(seqs, key=len))
     args = []
     lens = []
@@ -237,24 +244,27 @@ def extract_scope(path):
         }
     )
 
-    df_short = df[df["Length"] <= 150]
-
-    return df_short[df_short["Length"] >= 50]
+    return df[(df["Length"] >= length_min) & (df["Length"] <= length_max)]
 
 
 def validate_sequences(outdir):
-    """
-    Validates the generated sequences by checking if they are valid and only have the expected amino acids.
-    Args:
-        outdir (Path): The directory where the generated sequences are stored.
-    Returns:
-        bool : True if all sequences are valid, False otherwise.
-    """
+    """Check that all designed sequences contain only the permitted amino acids.
 
+    Reads .fa files from outdir/seqs/, skipping the first two lines of
+    each file (header and native sequence). A sequence is considered invalid if
+    it contains any amino acid in the biased-against set
+    {N, K, Q, R, C, H, F, M, Y, W}.
+
+    Args:
+        outdir (Path): Root output directory containing the seqs/ subdirectory.
+
+    Returns:
+        bool: True if every sequence in every file passes validation,
+        False otherwise.
+    """
     bad_aa = ["N", "K", "Q", "R", "C", "H", "F", "M", "Y", "W"]
 
     seqs_path = outdir / "seqs"
-
     files = list(seqs_path.glob("*.fa"))
 
     seq = []
@@ -296,26 +306,21 @@ def validate_sequences(outdir):
 
     bool_arr = np.array(bool_arr)
 
-    # See if all sequences are valid (e.g. only the desired amino acids are present)
     return np.all(bool_arr == True)
 
 
 def print_class_distribution(df):
-    """
-    Prints the number of sequences found for each SCOPe class.
+    """Print a summary table of sequence counts per SCOPe fold class.
 
     Args:
-        df (pd.DataFrame): DataFrame containing the sequences with 'Names' column for class names.
-
-    Returns:
-        None
+        df (pd.DataFrame): DataFrame with a Names column containing fold
+            class labels.
     """
     print("\n" + "=" * 70)
     print("SCOPe Class Distribution")
     print("=" * 70)
 
     class_counts = df["Names"].value_counts().sort_index()
-
     total_sequences = len(df)
 
     for class_name, count in class_counts.items():
@@ -327,50 +332,57 @@ def print_class_distribution(df):
     print("=" * 70 + "\n")
 
 
-def remove_designed_sequences(df):
-    """
-    Removes sequences that have already been designed based on specific criteria.
+def remove_designed_sequences(df, extension=False):
+    """Remove sequences that were already designed in the initial study.
 
-    Filters out sequences with lengths between 50 and 100 (inclusive) for the
-    following classes that have already been designed:
-    - c.37 (P-fold_Hydrolase_c.37)
-    - a.4 (DNA_RNA-binding_3-helical_a.4)
-    - c.1 (TIM-barrel_c.1)
-    - c.2 (Rossman-fold_c.2)
-    - d.58 (Ferredoxin_d.58)
-    - c.23 (Flavodoxin-like_c.23)
-    - c.55 (Ribonuclease_H-like_motif_c.55)
-    - b.40 (OB-fold_greek-key_b.40)
-    - c.66 (Nucleoside_Hydrolase_c.66)
+    In the extension study, sequences with lengths 50–100 belonging to the
+    initial fold classes (INITIAL_CLASSES) are excluded to avoid
+    redundant computation. No filtering is applied for the initial study.
 
     Args:
-        df (pd.DataFrame): DataFrame containing sequences with 'Length' and 'Classes' columns.
+        df (pd.DataFrame): DataFrame with Length and Classes columns.
+        extension (bool): If True, apply the extension-study filter.
+            Defaults to False.
 
     Returns:
-        pd.DataFrame: Filtered DataFrame with already-designed sequences removed.
+        pd.DataFrame: Filtered DataFrame.
     """
-    # Classes that have already been designed
-    designed_classes = [37, 4, 1, 2, 58, 23, 55, 40, 66]
-
-    # Create mask for sequences to remove (length 50-100 AND in designed classes)
-    mask_to_remove = (
-        (df["Length"] >= 50)
-        & (df["Length"] <= 100)
-        & (df["Classes"].isin(designed_classes))
-    )
-
-    # Return dataframe with these sequences removed
-    return df[~mask_to_remove]
+    if extension:
+        mask_to_remove = (
+            (df["Length"] >= 50)
+            & (df["Length"] <= 100)
+            & (df["Classes"].isin(INITIAL_CLASSES))
+        )
+        return df[~mask_to_remove]
+    else:
+        return df
 
 
 def main():
-    scopepath, out_prefix, astral_path, rfdiffusion_path, rfdiffusion_python_path = (
+    scopepath, out_prefix, astral_path, rfdiffusion_path, rfdiffusion_python_path, extension = (
         parse_arguments()
     )
-    df = extract_scope(astral_path)
-    df = remove_designed_sequences(df)
 
-    # Print class distribution before starting design loop
+    if extension:
+        length_min, length_max = EXTENSION_LENGTH_RANGE
+        target_classes = ALL_CLASSES
+        print(
+            f"Running EXTENSION study: "
+            f"length range {length_min}–{length_max} residues, "
+            f"classes {target_classes}"
+        )
+    else:
+        length_min, length_max = INITIAL_LENGTH_RANGE
+        target_classes = INITIAL_CLASSES
+        print(
+            f"Running INITIAL study: "
+            f"length range {length_min}–{length_max} residues, "
+            f"classes {target_classes}"
+        )
+
+    df = extract_scope(astral_path, length_min, length_max)
+    df = remove_designed_sequences(df, extension=extension)
+
     print_class_distribution(df)
 
     scope_names = df["SCOPe name"].tolist()
@@ -404,14 +416,12 @@ def main():
         total=len(basepdb),
         desc="Designing proteins",
     ):
-        # Skip if output directory already exists
         if odir.is_dir():
             print(f"Skipping {odir}, output already exists.")
             continue
         else:
             if bpdb.is_file():
                 extract_atoms_from_model(bpdb, ipdb, "A")
-            # Skip if file does not exist in database
             else:
                 continue
 
@@ -471,7 +481,6 @@ def main():
 
         subprocess.run(command3, shell=True)
 
-    # Validate sequences
     valid = validate_sequences(out_prefix)
 
     if valid:

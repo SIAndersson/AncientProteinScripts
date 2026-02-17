@@ -9,6 +9,9 @@ import re
 from itertools import islice
 from tqdm import tqdm
 import argparse
+from biotite.structure import lddt
+import biotite.structure.io.pdb as pdb
+import shlex
 
 import torch
 from transformers import AutoTokenizer, EsmForProteinFolding
@@ -17,76 +20,16 @@ import tempfile
 
 warnings.filterwarnings("ignore")
 
-# Set visual standards
-plt.rcParams.update(
-    {
-        "font.size": 10,
-        "font.family": "sans-serif",
-        "font.sans-serif": ["Helvetica"],
-        "axes.linewidth": 0.5,
-        "axes.labelsize": 11,
-        "axes.titlesize": 12,
-        "xtick.labelsize": 10,
-        "ytick.labelsize": 10,
-        "legend.fontsize": 10,
-        "legend.title_fontsize": 12,
-        "figure.dpi": 300,
-        "savefig.dpi": 600,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "axes.grid": False,
-    }
-)
-
-
-# Set colour palette to colorblind-friendly colours
-colours = [
-    "#1f77b4",
-    "#ff7f0e",
-    "#2ca02c",
-    "#d62728",
-    "#9467bd",
-    "#8c564b",
-    "#e377c2",
-    "#7f7f7f",
-    "#bcbd22",
-    "#17becf",
-]
-sns.set_palette(colours)
-
-usalign_path = str(Path.home() / "USalign")
-
-# ESMFold atom order mapping (14 atoms per residue)
-ATOM_NAMES = [
-    "N",
-    "CA",
-    "C",
-    "O",
-    "CB",
-    "OG",
-    "OG1",
-    "CG",
-    "CG1",
-    "CG2",
-    "CD",
-    "CD1",
-    "CD2",
-    "CE",
-]
-STANDARD_ATOMS = ["N", "CA", "C", "O", "CB"]
-
-print("Loading ESM model...")
-model = EsmForProteinFolding.from_pretrained("facebook/esmfold_v1").to("cuda:0")
-tokenizer = AutoTokenizer.from_pretrained("facebook/esmfold_v1")
-print("ESM model loaded successfully.")
-
-
-def extract_csv(path):
-    df = pd.read_csv(path)
-    return df
-
 
 def get_fresh_df(df):
+    """Extract template paths and fold class labels into a clean DataFrame.
+
+    Args:
+        df (pd.DataFrame): Input DataFrame with 'Path' and 'Class' columns.
+
+    Returns:
+        pd.DataFrame: DataFrame with 'Template' and 'Fold' columns.
+    """
     template_list = df["Path"].tolist()
     class_list = df["Class"].tolist()
 
@@ -94,58 +37,144 @@ def get_fresh_df(df):
     return df_fresh
 
 
-def esm_inference(sequence=None):
+def initialize_esmfold_model(gpu_id=0):
+    """Load the ESMFold model and tokenizer onto the specified device.
+
+    Args:
+        gpu_id (int): CUDA device ID. Falls back to CPU if CUDA is unavailable.
+
+    Returns:
+        tuple[EsmForProteinFolding, AutoTokenizer]: Loaded model and tokenizer.
+    """
+    device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+    print(f"Loading ESMFold on {device}...")
+
+    tokenizer = AutoTokenizer.from_pretrained("facebook/esmfold_v1")
+    model = EsmForProteinFolding.from_pretrained("facebook/esmfold_v1")
+    model = model.to(device)
+    model = model.eval()
+
+    return model, tokenizer
+
+
+def esmfold_inference(sequence, model, tokenizer):
+    """Run a single ESMFold forward pass for a protein sequence.
+
+    Args:
+        sequence (str): Amino acid sequence in single-letter code.
+        model (EsmForProteinFolding): Loaded ESMFold model.
+        tokenizer (AutoTokenizer): Corresponding ESMFold tokenizer.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray, EsmForProteinFoldingOutput]: Per-residue pLDDT array,
+            atom positions array of shape (8, batch, seq_len, 14, 3),
+            and the raw model output object.
+    """
     inputs = tokenizer([sequence], return_tensors="pt", add_special_tokens=False)
-    inputs = inputs.to("cuda:0")
+    inputs = inputs.to(model.device)
 
     with torch.no_grad():
         outputs = model(**inputs)
 
     esm_plddt = outputs.plddt.cpu().numpy()
-    positions = outputs.positions.cpu().numpy()  # Shape: [batch, seq_len, 14, 3]
+    positions = outputs.positions.cpu().numpy()
 
-    return esm_plddt, positions
+    return esm_plddt, positions, outputs
 
 
-def extract_ca_atoms_from_positions(positions):
+def write_coords_to_pdb(model, outputs_dict, filename):
+    """Write an ESMFold prediction to a PDB file.
+
+    Args:
+        model (EsmForProteinFolding): ESMFold model used for inference.
+        outputs_dict (EsmForProteinFoldingOutput): Raw output from ``esmfold_inference``.
+        filename (str or Path): Destination path for the output PDB file.
     """
-    Extract C-alpha atoms from ESMFold positions
-    ESMFold atom order: N, CA, C, O, CB, SG, etc.
-    C-alpha is typically at index 1
-    """
-    # Remove batch dimension and extract CA atoms (index 1)
-    ca_coords = positions[0, 0, :, 1, :]  # Shape: [seq_len, 3]
-    return ca_coords
+    pdb_string = model.output_to_pdb(outputs_dict)
 
+    # Check if pdb_string is a string or a list of strings
+    if isinstance(pdb_string, list):
+        pdb_string = pdb_string[0]
 
-def write_coords_to_pdb(coords, sequence, filename):
-    """
-    Write coordinates to PDB format for TM-score calculation
-    """
+    if len(pdb_string) == 0:
+        print("No PDB string generated")
+        return
+
     with open(filename, "w") as f:
-        f.write("REMARK Generated structure\n")
-        for i, (coord, aa) in enumerate(zip(coords, sequence)):
-            f.write(
-                f"ATOM  {i + 1:5d}  CA  {aa} A{i + 1:4d}    "
-                f"{coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}"
-                f"  1.00 50.00           C\n"
-            )
-        f.write("END\n")
+        f.write(pdb_string)
+        
 
+def calculate_lddt(predicted_pdb, reference_pdb):
+    """Calculate the lDDT score between a predicted and a reference structure.
 
-def calculate_tm_score(predicted_pdb, reference_pdb):
+    Only Cα atoms are compared to handle structures with different atom counts.
+
+    Args:
+        predicted_pdb (str or Path): Path to the predicted structure PDB file.
+        reference_pdb (str or Path): Path to the reference structure PDB file.
+
+    Returns:
+        float | None: lDDT score on a 0–1 scale, or None if calculation fails.
     """
-    Calculate TM-score using TMscore executable
-    You need to install TMscore: https://zhanggroup.org/TM-score/
+    try:
+        with warnings.catch_warnings():
+            # Ignore Biotite warnings about atom guessing
+            warnings.filterwarnings("ignore", message=".*elements were guessed.*")
+            # Load structures using Biotite
+            ref_file = pdb.PDBFile.read(reference_pdb)
+            pred_file = pdb.PDBFile.read(predicted_pdb)
+
+            # Get atom arrays
+            ref_structure = ref_file.get_structure(model=1)
+            pred_structure = pred_file.get_structure(model=1)
+
+        # Filter to CA atoms only to ensure matching atom counts
+        # Sometimes predicted models have an atom mismatch
+        ref_ca = ref_structure[ref_structure.atom_name == "CA"]
+        pred_ca = pred_structure[pred_structure.atom_name == "CA"]
+
+        # Verify we have matching numbers of CA atoms
+        if len(ref_ca) != len(pred_ca):
+            print(
+                f"Warning: Mismatched CA atom counts - ref: {len(ref_ca)}, pred: {len(pred_ca)}"
+            )
+            return None
+
+        # Calculate global lDDT score on CA atoms
+        lddt_score = lddt(ref_ca, pred_ca)
+
+        return lddt_score
+
+    except Exception as e:
+        print(f"Error calculating LDDT: {e}")
+        return None
+
+
+def calculate_tm_score(usalign_path, predicted_pdb, reference_pdb):
+    """Calculate TM-score and RMSD between two structures using USalign.
+
+    The TM-score is normalised by the length of the reference structure
+    (Structure_2 in USalign convention).
+
+    Args:
+        usalign_path (str or Path): Path to the USalign executable.
+        predicted_pdb (str or Path): Path to the predicted structure PDB file.
+        reference_pdb (str or Path): Path to the reference structure PDB file.
+
+    Returns:
+        tuple[float | None, float | None]: (tm_score, rmsd), or (None, None)
+            if USalign fails or is not found.
     """
     try:
         result = subprocess.run(
-            [usalign_path, predicted_pdb, reference_pdb, "-TMscore", "0"],
+            [str(usalign_path), str(predicted_pdb), str(reference_pdb), "-TMscore", "0"],
             capture_output=True,
             text=True,
             check=True,
         )
         output = result.stdout
+
+        # Parse TM-score (normalized by length of Structure_2, i.e., reference)
         tm_match = re.search(
             r"TM-score=\s+([0-9.]+) \(normalized by length of Structure_2",
             output,
@@ -159,22 +188,32 @@ def calculate_tm_score(predicted_pdb, reference_pdb):
         return tm_score, rmsd
 
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"Error running TMscore: {e}")
-        print("Make sure TMscore is installed and in PATH")
-        return None
+        print(f"Error running USalign: {e}")
+        print("Make sure USalign is installed and in PATH")
+        return None, None
 
 
-def compare_structures(sequence, reference_pdb_file):
-    """
-    Main function to compare predicted and reference structures
+def compare_structures(sequence, reference_pdb_file, usalign_path, model, tokenizer):
+    """Predict a structure with ESMFold and compare it to a reference.
+
+    Args:
+        sequence (str): Amino acid sequence to fold.
+        reference_pdb_file (str or Path): Path to the reference PDB file.
+        usalign_path (str or Path): Path to the USalign executable.
+        model (EsmForProteinFolding): Loaded ESMFold model.
+        tokenizer (AutoTokenizer): ESMFold tokenizer.
+
+    Returns:
+        tuple[float | None, float | None, float, float | None]: A tuple of:
+            - tm_score: TM-score between predicted and reference structures.
+            - rmsd: RMSD in Angstroms.
+            - plddt: Mean pLDDT score scaled to 0-100.
+            - lddt: lDDT score on Calpha atoms (0-1 scale).
     """
     # Get prediction
-    plddt, positions = esm_inference(sequence)
+    plddt, positions, model_outputs = esmfold_inference(sequence, model, tokenizer)
 
-    # Extract C-alpha coordinates from prediction
-    pred_ca_coords = extract_ca_atoms_from_positions(positions)
-
-    # Calculate TM-score (requires external TMscore program)
+    # Calculate TM-score
     tm_score = None
     rmsd = None
     try:
@@ -182,17 +221,28 @@ def compare_structures(sequence, reference_pdb_file):
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".pdb", delete=False
         ) as tmp_pred:
-            write_coords_to_pdb(pred_ca_coords, sequence, tmp_pred.name)
-            tm_score, rmsd = calculate_tm_score(tmp_pred.name, reference_pdb_file)
-            # print(f"TM-score: {tm_score}, RMSD: {rmsd}")
-            os.unlink(tmp_pred.name)  # Clean up
+            tmp_pred_path = Path(tmp_pred.name)
+            write_coords_to_pdb(model, model_outputs, tmp_pred_path)
+            tm_score, rmsd = calculate_tm_score(usalign_path, tmp_pred_path, reference_pdb_file)
+            lddt = calculate_lddt(tmp_pred_path, reference_pdb_file)
+            tmp_pred_path.unlink()  # Clean up
     except Exception as e:
         print(f"TM-score calculation failed: {e}")
 
-    return tm_score, rmsd, plddt.mean() * 100  # Return mean PLDDT as percentage
+    return tm_score, rmsd, plddt.mean() * 100, lddt
 
 
 def get_best_seq(fasta_path):
+    """Return the sequence with the lowest global score from a ProteinMPNN FASTA.
+
+    Args:
+        fasta_path (str or Path): Path to the ProteinMPNN-generated FASTA file.
+
+    Returns:
+        tuple[str, float]: A tuple of:
+            - best_seq: Amino acid sequence with the lowest global score.
+            - best_score: Corresponding global score.
+    """
     with open(fasta_path) as f:
         temp_seq = []
         temp_score = []
@@ -214,46 +264,70 @@ def get_best_seq(fasta_path):
     return best_seq, score[best_i]
 
 
-def run_redesign(df, out_dir, rfdiffusion_path):
-    if not Path(out_dir).exists():
-        Path(out_dir).mkdir(parents=True, exist_ok=True)
+def run_redesign(df, out_dir, rfdiffusion_path, rfdiffusion_python_path, usalign_path, model, tokenizer):
+    """Run ProteinMPNN sequence redesign and ESMFold evaluation for each structure.
+
+    For each entry in the DataFrame, runs ProteinMPNN to generate candidate sequences,
+    selects the best-scoring sequence, and evaluates it with ESMFold against the
+    original structure.
+
+    Args:
+        df (pd.DataFrame): DataFrame with 'Template' (PDB path) and 'Fold'
+            (class label) columns.
+        out_dir (str or Path): Root output directory; per-class subdirectories
+            are created automatically.
+        rfdiffusion_path (str or Path): Path to the RFDiffusion installation
+            directory.
+        rfdiffusion_python_path (str or Path): Path to the RFDiffusion Python
+            environment.
+        usalign_path (str or Path): Path to the USalign executable.
+        model (EsmForProteinFolding): Loaded ESMFold model.
+        tokenizer (AutoTokenizer): ESMFold tokenizer.
+
+    Returns:
+        pd.DataFrame: Input DataFrame with appended columns: 'Designed Sequence',
+            'MPNN Score', 'ESM PLDDT', 'TM-score', 'RMSD', and 'lDDT'.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     best_seqs = []
     best_scores = []
     esm_plddts = []
     tm_scores = []
     rmsds = []
+    lddts = []
 
     for index, row in tqdm(df.iterrows(), total=len(df), desc="Redesigning"):
-        template = row["Template"]
+        template = Path(row["Template"])
         class_name = row["Fold"]
 
-        odir = out_dir + "/" + class_name + "/"
-        if not Path(odir).exists():
-            Path(odir).mkdir(parents=True, exist_ok=True)
+        odir = out_dir / class_name
+        odir.mkdir(parents=True, exist_ok=True)
 
-        # Simulate redesign process
+        # Print redesign progress/information
         tqdm.write(f"Redesigning {template} for class {class_name}")
 
         design_command = (
-            f"python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/protein_mpnn_run.py "
-            f"--num_seq_per_target=20 --batch_size=10 --out_folder={odir} --pdb_path={template}"
+            f"{rfdiffusion_python_path}/bin/python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/protein_mpnn_run.py "
+            f"--num_seq_per_target=20 --batch_size=10 --out_folder={shlex.quote(str(odir))} --pdb_path={shlex.quote(str(template))}"
         )
 
-        with open(os.path.join(odir, "design.log"), "w") as log_file:
+        with open(odir / "design.log", "w") as log_file:
             subprocess.run(
                 design_command, shell=True, stdout=log_file, stderr=subprocess.STDOUT
             )
 
         # Get best sequence
-        fasta_path = odir + "seqs/" + Path(template).stem + ".fa"
+        fasta_path = odir / "seqs" / f"{template.stem}.fa"
         best_seq, best_score = get_best_seq(fasta_path)
 
         # Run ESM inference
-        tm_score, rmsd, plddt = compare_structures(best_seq, template)
+        tm_score, rmsd, plddt, lddt = compare_structures(best_seq, template, usalign_path, model, tokenizer)
         esm_plddts.append(plddt)
         tm_scores.append(tm_score)
         rmsds.append(rmsd)
+        lddts.append(lddt)
 
         torch.cuda.empty_cache()
 
@@ -265,11 +339,15 @@ def run_redesign(df, out_dir, rfdiffusion_path):
     df["ESM PLDDT"] = esm_plddts
     df["TM-score"] = tm_scores
     df["RMSD"] = rmsds
+    df["lDDT"] = lddts
 
     return df
 
 
 def parse_arguments():
+    """
+    Parse command-line arguments for the redesign pipeline.
+    """
     parser = argparse.ArgumentParser(
         description="Protein redesign pipeline with ESMFold evaluation"
     )
@@ -286,20 +364,40 @@ def parse_arguments():
         help="Output directory for redesign results",
     )
     parser.add_argument(
+        "--usalign_path",
+        type=str,
+        required=False,
+        default="USalign",
+        help="Path to USalign executable.",
+    )
+    parser.add_argument(
         "--rfdiffusion_path",
         type=str,
         required=True,
         help="Path to RFDiffusion installation directory",
     )
+    parser.add_argument(
+        "--rfdiffusion_python_path",
+        type=str,
+        required=True,
+        help="Path to RFdiffusion Python environment.",
+    )
+    parser.add_argument(
+        "--gpu_id",
+        type=int,
+        required=False,
+        default=0,
+        help="Default GPU device ID to use.",
+    )
     args = parser.parse_args()
-    return args.csv_path, args.out_dir, args.rfdiffusion_path
+    return Path(args.csv_path), Path(args.out_dir), Path(args.rfdiffusion_path), Path(args.rfdiffusion_python_path), Path(args.usalign_path), args.gpu_id
 
 
 if __name__ == "__main__":
     # Parse command-line arguments
-    csv_path, out_dir, rfdiffusion_path = parse_arguments()
+    csv_path, out_dir, rfdiffusion_path, rfdiffusion_python_path, usalign_path, gpu_id = parse_arguments()
 
-    df = extract_csv(csv_path)
+    df = pd.read_csv(csv_path)
     print("Initial DataFrame:")
     print("=" * 50)
     print(df.head())
@@ -309,12 +407,15 @@ if __name__ == "__main__":
     print("=" * 50)
     print(df_fresh.head())
 
+    # Initialize ESMFold model
+    model, tokenizer = initialize_esmfold_model(gpu_id)
+
     # Run redesign process
     print("\nStarting redesign process...")
     print("=" * 50)
-    df_redesign = run_redesign(df_fresh, out_dir, rfdiffusion_path)
+    df_redesign = run_redesign(df_fresh, out_dir, rfdiffusion_path, usalign_path, model, tokenizer)
 
     # Save the updated DataFrame
-    output_csv = Path(out_dir) / "protein_evo_results_redesign.csv"
+    output_csv = out_dir / "protein_evo_results_redesign.csv"
     df_redesign.to_csv(output_csv, index=False)
     print(f"\nResults saved to: {output_csv}")

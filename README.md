@@ -92,6 +92,7 @@ Parameters:
 - `--astral_path`: Path to ASTRAL FASTA file for sequence extraction
 - `--rfdiffusion_path`: Path to RFdiffusion repository
 - `--rfdiffusion_python_path`: Path to RFdiffusion conda environment (where bin/python exists)
+- `--extension`: Include if you want to run the extension study
 
 #### 2. Analysis pipeline
 
@@ -125,7 +126,8 @@ Redesign accepted structures using all 20 amino acids for comparison:
 python redesign_20.py \
     --input_csv protein_evo_results.csv \
     --output_dir /path/to/redesign/output/ \
-    --rfdiffusion_path /path/to/RFdiffusion
+    --rfdiffusion_path /path/to/RFdiffusion \
+    --rfdiffusion_python_path /path/to/RFdiffusionCondaEnv
 ```
 
 This uses the csv generated from the previous steps to access the templates. In the end, only templates that have the correct secondary structure are considered for the comparison in order to keep it fair.
@@ -142,6 +144,7 @@ python mutations_simulation_10E.py \
     --n_runs 20 \
     --max_workers 1
 ```
+
 Parameters:
 
 - `--pdb`: Original PDB structure
@@ -167,6 +170,7 @@ output_directory/
 ├── ...
 └── aggregated_results.csv
 ```
+
 ### Output Files
 
 - **Individual PDB files**: `mutant_N.pdb` - 3D structures for each mutation count
@@ -187,6 +191,7 @@ output_directory/
 The `raw_results/` directory contains CSV files with detailed simulation outputs from running the mutation simulation scripts on selected proteins. These files represent the raw data produced by the simulation process and include:
 
 ### File Naming Convention
+
 Files follow the pattern: `raw_results_{Protein}_{Type}_{Alphabet}_{Runs}.csv`
 
 - **Protein**: `Ap3`, `Fd3`, or `Rn2` (protein identifiers)
@@ -194,7 +199,9 @@ Files follow the pattern: `raw_results_{Protein}_{Type}_{Alphabet}_{Runs}.csv`
 - **Alphabet**: `All_20` or `Ancient_10` (amino acid alphabet used)
 
 ### Content Structure
+
 Each raw results file contains:
+
 - Individual mutation results from multiple simulation runs
 - TM-scores and RMSD values for structural comparisons
 - Detailed mutation information (position, original amino acid, new amino acid)
@@ -215,13 +222,14 @@ The `statistics/` directory contains statistical analysis files that compare sim
 3. **`statistical_comparison_two_alphabets.csv`**
    - Direct statistical comparison between 10-amino acid and 20-amino acid alphabet simulations
 
-
 ### Memory Management
+
 - Scripts include aggressive GPU memory cleanup
 - Sequential processing (`--max_workers 1`) recommended for memory-constrained systems
 - Each run loads the ESMFold model independently
 
 ### Computational Requirements
+
 - **GPU**: CUDA-compatible GPU strongly recommended
 - **RAM**: 8GB+ recommended for typical proteins
 - **Storage**: ~1-10MB per mutation depending on protein size
