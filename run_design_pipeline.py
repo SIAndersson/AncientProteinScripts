@@ -1,9 +1,9 @@
 import argparse
-import glob
-import os
 import re
+import shlex
 import subprocess
 from itertools import islice
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -37,18 +37,31 @@ def parse_arguments():
         required=True,
         help="Path to RFdiffusion repository.",
     )
+    parser.add_argument(
+        "--rfdiffusion_python_path",
+        type=str,
+        required=True,
+        help="Path to RFdiffusion Python environment.",
+    )
 
     args = parser.parse_args()
 
-    return args.scope_database, args.out_path, args.astral_path, args.rfdiffusion_path
+    # Convert all paths to Path objects
+    return (
+        Path(args.scope_database),
+        Path(args.out_path),
+        Path(args.astral_path),
+        Path(args.rfdiffusion_path),
+        Path(args.rfdiffusion_python_path),
+    )
 
 
 def extract_atoms_from_model(input_pdb_file, output_pdb_file, target_model_id):
     """
     Extracts atoms from a specific model in a PDB file and writes them to a new PDB file.
     Args:
-        input_pdb_file (str): Path to the input PDB file.
-        output_pdb_file (str): Path to the output PDB file where the extracted atoms will be written.
+        input_pdb_file (Path): Path to the input PDB file.
+        output_pdb_file (Path): Path to the output PDB file where the extracted atoms will be written.
         target_model_id (str): The model ID from which atoms should be extracted.
     Returns:
         None
@@ -87,6 +100,8 @@ def extract_scope(path):
     This function reads a file containing protein sequences and their SCOPe classifications,
     extracts relevant sequences and their associated metadata, and returns a DataFrame
     containing sequences with lengths between 50 and 100 amino acids.
+    Args:
+        path (Path): Path to the ASTRAL fasta file.
     Returns:
         pd.DataFrame: A DataFrame with the following columns:
             - 'Length': Length of the protein sequences.
@@ -97,18 +112,40 @@ def extract_scope(path):
             - 'SCOPe name': Names of the protein sequences from the file.
     """
 
-    matches = ["c.1.", "c.2.", "c.37.", "d.58", "a.4", "c.23", "c.55", "b.40", "c.66"]
+    matches = [
+        "c.1.",
+        "c.2.",
+        "c.3.",
+        "c.23.",
+        "c.26.",
+        "c.36.",
+        "c.37.",
+        "c.55.",
+        "c.66.",
+        "c.67.",
+        "c.94.",
+        "d.58",
+        "a.4",
+        "b.40",
+        "b.84",
+    ]
 
     name_dict = {
         "1": "TIM-barrel_c.1",
         "2": "Rossman-fold_c.2",
+        "3": "FAD_NAD(P)-binding_domain_c.3",
+        "23": "Flavodoxin-like_c.23",
+        "26": "Adenine_nucleotide_alpha_hydrolase-like_c.26",
+        "36": "Thiamin_diphosphate-binding_fold_c.36",
         "37": "P-fold_Hydrolase_c.37",
+        "55": "Ribonuclease_H-like_motif_c.55",
+        "66": "Nucleoside_Hydrolase_c.66",
+        "67": "PLP-dependent_transferase-like_c.67",
+        "94": "Periplasmic_binding_protein-like_II_c.94",
         "58": "Ferredoxin_d.58",
         "4": "DNA_RNA-binding_3-helical_a.4",
-        "23": "Flavodoxin-like_c.23",
-        "55": "Ribonuclease_H-like_motif_c.55",
         "40": "OB-fold_greek-key_b.40",
-        "66": "Nucleoside_Hydrolase_c.66",
+        "84": "Barrel-sandwich_hybrid_b.84",
     }
 
     with open(path) as f:
@@ -128,10 +165,12 @@ def extract_scope(path):
                     temp_seqs.append(re.sub(r"[\n\t\s]*", "", temp))
                     temp_string = []
                 correct_match = False
-                result1 = re.findall("c\.(1|2|23|37|55|66)\.\d*\.\d*", line)
+                result1 = re.findall(
+                    "c\.(1|2|3|23|26|36|37|55|66|67|94)\.\d*\.\d*", line
+                )
                 result2 = re.findall("d\.(58)\.\d*\.\d*", line)
                 result3 = re.findall("a\.(4)\.\d*\.\d*", line)
-                result4 = re.findall("b\.(40)\.\d*\.\d*", line)
+                result4 = re.findall("b\.(40|84)\.\d*\.\d*", line)
                 if len(result1) != 0:
                     temp_class.append(result1[0])
                     correct_match = True
@@ -144,13 +183,17 @@ def extract_scope(path):
                 elif len(result4) != 0:
                     temp_class.append(result4[0])
                     correct_match = True
-                result1 = re.findall("c\.(1|2|23|37|55|66)\.\d*\.\d*", line)
+                result1 = re.findall(
+                    "c\.(1|2|3|23|26|36|37|55|66|67|94)\.\d*\.\d*", line
+                )
                 result2 = re.findall("d\.58\.\d*\.\d*", line)
                 result3 = re.findall("a\.4\.\d*\.\d*", line)
-                result4 = re.findall("b\.40\.\d*\.\d*", line)
+                result4 = re.findall("b\.(40|84)\.\d*\.\d*", line)
                 if len(result1) != 0:
                     temp_sub.append(
-                        re.search("c\.(1|2|23|37|55|66)\.\d*\.\d*", line).group()
+                        re.search(
+                            "c\.(1|2|3|23|26|36|37|55|66|67|94)\.\d*\.\d*", line
+                        ).group()
                     )
                 elif len(result2) != 0:
                     temp_sub.append(result2[0])
@@ -194,7 +237,7 @@ def extract_scope(path):
         }
     )
 
-    df_short = df[df["Length"] <= 100]
+    df_short = df[df["Length"] <= 150]
 
     return df_short[df_short["Length"] >= 50]
 
@@ -203,26 +246,24 @@ def validate_sequences(outdir):
     """
     Validates the generated sequences by checking if they are valid and only have the expected amino acids.
     Args:
-        outdir (str): The directory where the generated sequences are stored.
+        outdir (Path): The directory where the generated sequences are stored.
     Returns:
         bool : True if all sequences are valid, False otherwise.
     """
 
     bad_aa = ["N", "K", "Q", "R", "C", "H", "F", "M", "Y", "W"]
 
-    path = outdir + "/seqs/"
+    seqs_path = outdir / "seqs"
 
-    files = glob.glob(path + "/*.fa")
+    files = list(seqs_path.glob("*.fa"))
 
     seq = []
     score = []
     pname = []
 
     for fname in files:
-        filename, ext = os.path.splitext(fname)
-        filename = os.path.basename(fname)
-        if ext == ".fa":
-            pname.append(filename.replace(ext, ""))
+        if fname.suffix == ".fa":
+            pname.append(fname.stem)
             with open(fname) as f:
                 temp_seq = []
                 temp_score = []
@@ -259,9 +300,78 @@ def validate_sequences(outdir):
     return np.all(bool_arr == True)
 
 
+def print_class_distribution(df):
+    """
+    Prints the number of sequences found for each SCOPe class.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing the sequences with 'Names' column for class names.
+
+    Returns:
+        None
+    """
+    print("\n" + "=" * 70)
+    print("SCOPe Class Distribution")
+    print("=" * 70)
+
+    class_counts = df["Names"].value_counts().sort_index()
+
+    total_sequences = len(df)
+
+    for class_name, count in class_counts.items():
+        percentage = (count / total_sequences) * 100
+        print(f"{class_name:50s}: {count:4d} ({percentage:5.1f}%)")
+
+    print("-" * 70)
+    print(f"{'Total sequences':50s}: {total_sequences:4d}")
+    print("=" * 70 + "\n")
+
+
+def remove_designed_sequences(df):
+    """
+    Removes sequences that have already been designed based on specific criteria.
+
+    Filters out sequences with lengths between 50 and 100 (inclusive) for the
+    following classes that have already been designed:
+    - c.37 (P-fold_Hydrolase_c.37)
+    - a.4 (DNA_RNA-binding_3-helical_a.4)
+    - c.1 (TIM-barrel_c.1)
+    - c.2 (Rossman-fold_c.2)
+    - d.58 (Ferredoxin_d.58)
+    - c.23 (Flavodoxin-like_c.23)
+    - c.55 (Ribonuclease_H-like_motif_c.55)
+    - b.40 (OB-fold_greek-key_b.40)
+    - c.66 (Nucleoside_Hydrolase_c.66)
+
+    Args:
+        df (pd.DataFrame): DataFrame containing sequences with 'Length' and 'Classes' columns.
+
+    Returns:
+        pd.DataFrame: Filtered DataFrame with already-designed sequences removed.
+    """
+    # Classes that have already been designed
+    designed_classes = [37, 4, 1, 2, 58, 23, 55, 40, 66]
+
+    # Create mask for sequences to remove (length 50-100 AND in designed classes)
+    mask_to_remove = (
+        (df["Length"] >= 50)
+        & (df["Length"] <= 100)
+        & (df["Classes"].isin(designed_classes))
+    )
+
+    # Return dataframe with these sequences removed
+    return df[~mask_to_remove]
+
+
 def main():
-    scopepath, out_prefix, astral_path, rfdiffusion_path = parse_arguments()
+    scopepath, out_prefix, astral_path, rfdiffusion_path, rfdiffusion_python_path = (
+        parse_arguments()
+    )
     df = extract_scope(astral_path)
+    df = remove_designed_sequences(df)
+
+    # Print class distribution before starting design loop
+    print_class_distribution(df)
 
     scope_names = df["SCOPe name"].tolist()
     scope_class = df["Names"].tolist()
@@ -273,31 +383,33 @@ def main():
     outdir = []
 
     for name, cl in zip(scope_names, scope_class):
-        basepdb.append(scopepath + name[2:4] + "/" + name + ".ent")
+        basepdb.append(scopepath / name[2:4] / f"{name}.ent")
 
-        temp_dir = out_prefix + cl
+        temp_dir = out_prefix / cl
 
         try:
-            os.makedirs(temp_dir, exist_ok=True)
-            print("Directory '%s' created successfully" % temp_dir)
+            if not temp_dir.exists():
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                print(f"Directory '{temp_dir}' created successfully")
         except OSError:
-            print("Directory '%s' can not be created" % temp_dir)
+            print(f"Directory '{temp_dir}' can not be created")
 
-        inputpdb.append(out_prefix + cl + "/" + name + ".pdb")
-        outscaff.append(out_prefix + cl + "/SStruct/" + name)
-        outpath.append(out_prefix + cl + "/" + name + "/test_" + name)
-        outdir.append(out_prefix + cl + "/" + name)
+        inputpdb.append(temp_dir / f"{name}.pdb")
+        outscaff.append(temp_dir / "SStruct" / name)
+        outpath.append(temp_dir / name / f"test_{name}")
+        outdir.append(temp_dir / name)
 
     for bpdb, ipdb, oscaff, opath, odir in tqdm(
         zip(basepdb, inputpdb, outscaff, outpath, outdir),
         total=len(basepdb),
         desc="Designing proteins",
     ):
-        # Skip if file already exists
-        if os.path.isfile(ipdb):
+        # Skip if output directory already exists
+        if odir.is_dir():
+            print(f"Skipping {odir}, output already exists.")
             continue
         else:
-            if os.path.isfile(bpdb):
+            if bpdb.is_file():
                 extract_atoms_from_model(bpdb, ipdb, "A")
             # Skip if file does not exist in database
             else:
@@ -305,16 +417,26 @@ def main():
 
         # STRUCTURE DESIGN
         command1 = (
-            f"{rfdiffusion_path}/helper_scripts/make_secstruc_adj.py --input_pdb "
-            + ipdb
+            f"{rfdiffusion_python_path}/bin/python {rfdiffusion_path}/helper_scripts/make_secstruc_adj.py --input_pdb "
+            + shlex.quote(str(ipdb))
             + " --out_dir "
-            + oscaff
+            + shlex.quote(str(oscaff))
         )
+
+        # Need to escape parentheses for Hydra config parsing
+        opath_escaped = (
+            str(opath).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        )
+        oscaff_escaped = (
+            str(oscaff).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        )
+
         command2 = (
-            f"{rfdiffusion_path}/scripts/run_inference.py inference.output_prefix="
-            + opath
-            + " scaffoldguided.scaffoldguided=True scaffoldguided.target_pdb=False scaffoldguided.scaffold_dir="
-            + oscaff
+            f"{rfdiffusion_python_path}/bin/python {rfdiffusion_path}/scripts/run_inference.py "
+            f"'inference.output_prefix={opath_escaped}' "
+            f"scaffoldguided.scaffoldguided=True "
+            f"scaffoldguided.target_pdb=False "
+            f"'scaffoldguided.scaffold_dir={oscaff_escaped}'"
         )
 
         subprocess.run(command1, shell=True)
@@ -322,33 +444,29 @@ def main():
 
         # SEQUENCE DESIGN
         bias_command = (
-            f"python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/helper_scripts/make_bias_AA.py --output_path "
-            + odir
-            + "/bias.jsonl \
-            --AA_list 'N K Q R C H F M Y W'\
-            --bias_list '-10 -10 -10 -10 -10 -10 -10 -10 -10 -10'"
+            f"{rfdiffusion_python_path}/bin/python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/helper_scripts/make_bias_AA.py --output_path "
+            + shlex.quote(str(odir / "bias.jsonl"))
+            + " --AA_list 'N K Q R C H F M Y W' --bias_list '-10 -10 -10 -10 -10 -10 -10 -10 -10 -10'"
         )
 
         subprocess.run(bias_command, shell=True)
 
         json_command = (
-            f"python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/helper_scripts/parse_multiple_chains.py --input_path "
-            + odir
+            f"{rfdiffusion_python_path}/bin/python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/helper_scripts/parse_multiple_chains.py --input_path "
+            + shlex.quote(str(odir))
             + " --output_path "
-            + odir
-            + "/test.jsonl"
+            + shlex.quote(str(odir / "test.jsonl"))
         )
 
         subprocess.run(json_command, shell=True)
 
         command3 = (
-            f"python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/protein_mpnn_run.py --num_seq_per_target=20 --batch_size=10 --out_folder="
-            + odir
+            f"{rfdiffusion_python_path}/bin/python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/protein_mpnn_run.py --num_seq_per_target=20 --batch_size=10 --out_folder="
+            + shlex.quote(str(odir))
             + " --jsonl_path="
-            + odir
-            + "/test.jsonl  --bias_AA_jsonl "
-            + odir
-            + "/bias.jsonl"
+            + shlex.quote(str(odir / "test.jsonl"))
+            + " --bias_AA_jsonl "
+            + shlex.quote(str(odir / "bias.jsonl"))
         )
 
         subprocess.run(command3, shell=True)

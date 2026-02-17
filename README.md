@@ -81,7 +81,8 @@ python run_design_pipeline.py \
     --scope_database /path/to/scope/database/ \
     --out_path /path/to/output/ \
     --astral_path /path/to/astral.fa \
-    --rfdiffusion_path /path/to/RFdiffusion
+    --rfdiffusion_path /path/to/RFdiffusion \
+    --rfdiffusion_python_path /path/to/RFdiffusionCondaEnv
 ```
 
 Parameters:
@@ -90,6 +91,7 @@ Parameters:
 - `--out_path`: Output directory for generated structures and sequences
 - `--astral_path`: Path to ASTRAL FASTA file for sequence extraction
 - `--rfdiffusion_path`: Path to RFdiffusion repository
+- `--rfdiffusion_python_path`: Path to RFdiffusion conda environment (where bin/python exists)
 
 #### 2. Analysis pipeline
 

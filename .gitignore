@@ -219,3 +219,10 @@ __marimo__/
 *.pdf
 protein_evo_results.csv
 protein_evo_structure_evaluation.csv
+150residues/
+original/
+combined_data/
+update_csv.py
+generate_visualisation.py
+tmscore_calculation.py
+csv_analysis.py
