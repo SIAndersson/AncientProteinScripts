@@ -12,10 +12,8 @@ from itertools import islice
 from pathlib import Path
 
 import biotite.structure.io.pdb as pdb
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import torch
 from Bio.PDB import DSSP, PDBIO, PDBParser
 from biotite.structure import lddt
@@ -146,9 +144,7 @@ def parse_arguments():
     parser.add_argument(
         "--skip_structure_validation",
         action="store_true",
-        help=(
-            "Skip the ESMFold structure-prediction validation stage."
-        ),
+        help=("Skip the ESMFold structure-prediction validation stage."),
     )
     parser.add_argument(
         "--tm_threshold",
@@ -815,7 +811,7 @@ def validate_structures_with_esmfold(df_accept, output_csv, usalign_path, gpu_id
         df_struct = pd.DataFrame()
     else:
         df_struct = pd.DataFrame(validation_results)
-        
+
         if "Short_Fold" not in df_struct.columns:
             df_struct["Short_Fold"] = df_struct["Class"].apply(
                 lambda x: SHORT_FOLD_NAME_DICT.get(x, x)
@@ -823,7 +819,7 @@ def validate_structures_with_esmfold(df_accept, output_csv, usalign_path, gpu_id
 
         print("Calculating polyalanine counts...")
         df_struct = add_polyalanine_count(df_struct)
-        
+
         df_struct.to_csv(output_csv, index=False)
 
     return df_struct
@@ -869,7 +865,6 @@ def main():
         else:
             print(f"Loading existing validation from {validation_csv}")
             df_struct = pd.read_csv(validation_csv)
-
 
     print("Pipeline complete!")
 
