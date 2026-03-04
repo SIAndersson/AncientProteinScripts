@@ -1,22 +1,19 @@
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-import numpy as np
-import os
-from pathlib import Path
-import subprocess
-import re
-from itertools import islice
-from tqdm import tqdm
 import argparse
-from biotite.structure import lddt
-import biotite.structure.io.pdb as pdb
+import re
 import shlex
-
-import torch
-from transformers import AutoTokenizer, EsmForProteinFolding
-import warnings
+import subprocess
 import tempfile
+import warnings
+from itertools import islice
+from pathlib import Path
+
+import biotite.structure.io.pdb as pdb
+import numpy as np
+import pandas as pd
+import torch
+from biotite.structure import lddt
+from tqdm import tqdm
+from transformers import AutoTokenizer, EsmForProteinFolding
 
 warnings.filterwarnings("ignore")
 
@@ -30,8 +27,17 @@ def get_fresh_df(df):
     Returns:
         pd.DataFrame: DataFrame with 'Template' and 'Fold' columns.
     """
-    template_list = df["Path"].tolist()
-    class_list = df["Class"].tolist()
+    # Check if column are Fold and Paths or Path and Class
+    if "Fold" in df.columns and "Paths" in df.columns:
+        template_list = df["Paths"].tolist()
+        class_list = df["Fold"].tolist()
+    elif "Path" in df.columns and "Class" in df.columns:
+        template_list = df["Path"].tolist()
+        class_list = df["Class"].tolist()
+    else:
+        raise ValueError(
+            "DataFrame must contain either 'Fold' and 'Paths' or 'Path' and 'Class' columns."
+        )
 
     df_fresh = pd.DataFrame({"Template": template_list, "Fold": class_list})
     return df_fresh
@@ -102,7 +108,7 @@ def write_coords_to_pdb(model, outputs_dict, filename):
 
     with open(filename, "w") as f:
         f.write(pdb_string)
-        
+
 
 def calculate_lddt(predicted_pdb, reference_pdb):
     """Calculate the lDDT score between a predicted and a reference structure.
@@ -167,7 +173,13 @@ def calculate_tm_score(usalign_path, predicted_pdb, reference_pdb):
     """
     try:
         result = subprocess.run(
-            [str(usalign_path), str(predicted_pdb), str(reference_pdb), "-TMscore", "0"],
+            [
+                str(usalign_path),
+                str(predicted_pdb),
+                str(reference_pdb),
+                "-TMscore",
+                "0",
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -223,7 +235,9 @@ def compare_structures(sequence, reference_pdb_file, usalign_path, model, tokeni
         ) as tmp_pred:
             tmp_pred_path = Path(tmp_pred.name)
             write_coords_to_pdb(model, model_outputs, tmp_pred_path)
-            tm_score, rmsd = calculate_tm_score(usalign_path, tmp_pred_path, reference_pdb_file)
+            tm_score, rmsd = calculate_tm_score(
+                usalign_path, tmp_pred_path, reference_pdb_file
+            )
             lddt = calculate_lddt(tmp_pred_path, reference_pdb_file)
             tmp_pred_path.unlink()  # Clean up
     except Exception as e:
@@ -264,7 +278,16 @@ def get_best_seq(fasta_path):
     return best_seq, score[best_i]
 
 
-def run_redesign(df, out_dir, rfdiffusion_path, rfdiffusion_python_path, usalign_path, model, tokenizer):
+def run_redesign(
+    df,
+    out_dir,
+    rfdiffusion_path,
+    rfdiffusion_python_path,
+    usalign_path,
+    model,
+    tokenizer,
+    gpu_id=0,
+):
     """Run ProteinMPNN sequence redesign and ESMFold evaluation for each structure.
 
     For each entry in the DataFrame, runs ProteinMPNN to generate candidate sequences,
@@ -283,6 +306,7 @@ def run_redesign(df, out_dir, rfdiffusion_path, rfdiffusion_python_path, usalign
         usalign_path (str or Path): Path to the USalign executable.
         model (EsmForProteinFolding): Loaded ESMFold model.
         tokenizer (AutoTokenizer): ESMFold tokenizer.
+        gpu_id (int): GPU device ID.
 
     Returns:
         pd.DataFrame: Input DataFrame with appended columns: 'Designed Sequence',
@@ -310,7 +334,7 @@ def run_redesign(df, out_dir, rfdiffusion_path, rfdiffusion_python_path, usalign
 
         design_command = (
             f"{rfdiffusion_python_path}/bin/python {rfdiffusion_path}/sequence_design/dl_binder_design/mpnn_fr/ProteinMPNN/protein_mpnn_run.py "
-            f"--num_seq_per_target=20 --batch_size=10 --out_folder={shlex.quote(str(odir))} --pdb_path={shlex.quote(str(template))}"
+            f"--num_seq_per_target=20 --batch_size=10 --out_folder={shlex.quote(str(odir))} --pdb_path={shlex.quote(str(template))} --gpu={gpu_id}"
         )
 
         with open(odir / "design.log", "w") as log_file:
@@ -323,7 +347,9 @@ def run_redesign(df, out_dir, rfdiffusion_path, rfdiffusion_python_path, usalign
         best_seq, best_score = get_best_seq(fasta_path)
 
         # Run ESM inference
-        tm_score, rmsd, plddt, lddt = compare_structures(best_seq, template, usalign_path, model, tokenizer)
+        tm_score, rmsd, plddt, lddt = compare_structures(
+            best_seq, template, usalign_path, model, tokenizer
+        )
         esm_plddts.append(plddt)
         tm_scores.append(tm_score)
         rmsds.append(rmsd)
@@ -390,12 +416,26 @@ def parse_arguments():
         help="Default GPU device ID to use.",
     )
     args = parser.parse_args()
-    return Path(args.csv_path), Path(args.out_dir), Path(args.rfdiffusion_path), Path(args.rfdiffusion_python_path), Path(args.usalign_path), args.gpu_id
+    return (
+        Path(args.csv_path),
+        Path(args.out_dir),
+        Path(args.rfdiffusion_path),
+        Path(args.rfdiffusion_python_path),
+        Path(args.usalign_path),
+        args.gpu_id,
+    )
 
 
 if __name__ == "__main__":
     # Parse command-line arguments
-    csv_path, out_dir, rfdiffusion_path, rfdiffusion_python_path, usalign_path, gpu_id = parse_arguments()
+    (
+        csv_path,
+        out_dir,
+        rfdiffusion_path,
+        rfdiffusion_python_path,
+        usalign_path,
+        gpu_id,
+    ) = parse_arguments()
 
     df = pd.read_csv(csv_path)
     print("Initial DataFrame:")
@@ -413,7 +453,16 @@ if __name__ == "__main__":
     # Run redesign process
     print("\nStarting redesign process...")
     print("=" * 50)
-    df_redesign = run_redesign(df_fresh, out_dir, rfdiffusion_path, usalign_path, model, tokenizer)
+    df_redesign = run_redesign(
+        df_fresh,
+        out_dir,
+        rfdiffusion_path,
+        rfdiffusion_python_path,
+        usalign_path,
+        model,
+        tokenizer,
+        gpu_id,
+    )
 
     # Save the updated DataFrame
     output_csv = out_dir / "protein_evo_results_redesign.csv"

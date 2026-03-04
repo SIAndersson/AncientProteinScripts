@@ -359,9 +359,14 @@ def remove_designed_sequences(df, extension=False):
 
 
 def main():
-    scopepath, out_prefix, astral_path, rfdiffusion_path, rfdiffusion_python_path, extension = (
-        parse_arguments()
-    )
+    (
+        scopepath,
+        out_prefix,
+        astral_path,
+        rfdiffusion_path,
+        rfdiffusion_python_path,
+        extension,
+    ) = parse_arguments()
 
     if extension:
         length_min, length_max = EXTENSION_LENGTH_RANGE
