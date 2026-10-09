@@ -9,6 +9,25 @@ authors:
     given-names: Tereza
 version: 1.0.0
 date-released: 2026-10-09
-doi: <Zenodo DOI>
 repository-code: "https://github.com/SIAndersson/AncientProteinScripts"
 license: MIT
+preferred-citation:
+  type: article
+  status: preprint
+  authors:
+    - {family-names: "Giacobelli", given-names: "V. G."}
+    - {family-names: "Andersson", given-names: "S."}
+    - {family-names: "Srb", given-names: "P."}
+    - {family-names: "Neuwirthova", given-names: "T."}
+    - {family-names: "Ruszova", given-names: "Z."}
+    - {family-names: "Marhoul", given-names: "J."}
+    - {family-names: "Psenicka", given-names: "S."}
+    - {family-names: "Knetl", given-names: "A."}
+    - {family-names: "Bednarova", given-names: "L."}
+    - {family-names: "Veverka", given-names: "V."}
+    - {family-names: "Hlouchova", given-names: "K."}
+    - {family-names: "Andre", given-names: "I."}
+  title: "Ancient amino acid sets enable stable protein folds"
+  journal: "bioRxiv"
+  year: 2025
+  doi: "10.1101/2025.10.29.685319"
