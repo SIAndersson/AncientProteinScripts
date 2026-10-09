@@ -8,7 +8,7 @@ The general pipeline is:
 2. Designs sequences with ProteinMPNN restricted to 10 amino acids (excluding N, K, Q, R, C, H, F, M, Y, W)
 3. Validates designs through structural metrics (TM-score, RMSD, DSSP)
 4. Predicts structures using ESMFold
-5. Simulation of mutational robustness of the folds either with rectricted 10 amino acids or all 20
+5. Simulation of mutational robustness of the folds either with restricted 10 amino acids or all 20
 
 ### Repo structure
 
@@ -20,7 +20,7 @@ The general pipeline is:
 ├── mutations_simulation_20F.py #  Mutational robustness simulations script with 20 amino acids
 ├── pyproject.toml # Python dependencies
 ├── raw_results.zip # Folder with raw results from mutation simulations
-├── statistics.zip # Statistical comparison results between groups sompared in the paper
+├── statistics.zip # Statistical comparison results between groups compared in the paper
 └── README.md # This file
 
 ```
@@ -124,7 +124,7 @@ Redesign accepted structures using all 20 amino acids for comparison:
 
 ```bash
 python redesign_20.py \
-    --input_csv protein_evo_results.csv \
+    --csv_path protein_evo_results.csv \
     --output_dir /path/to/redesign/output/ \
     --rfdiffusion_path /path/to/RFdiffusion \
     --rfdiffusion_python_path /path/to/RFdiffusionCondaEnv
@@ -233,3 +233,8 @@ The `statistics/` directory contains statistical analysis files that compare sim
 - **GPU**: CUDA-compatible GPU strongly recommended
 - **RAM**: 8GB+ recommended for typical proteins
 - **Storage**: ~1-10MB per mutation depending on protein size
+
+## Additional information
+
+License: MIT
+Citation: see `CITATION.cff`
