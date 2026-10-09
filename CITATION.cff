@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "AncientProteinScripts"
+authors:
+  - family-names: Andersson
+    given-names: Sebastian
+    orcid: "https://orcid.org/0000-0002-5300-7762"
+  - family-names: Neuwirthova
+    given-names: Tereza
+version: 1.0.0
+date-released: 2026-10-09
+doi: <Zenodo DOI>
+repository-code: "https://github.com/SIAndersson/AncientProteinScripts"
+license: MIT
