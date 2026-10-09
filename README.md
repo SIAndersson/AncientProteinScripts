@@ -1,3 +1,7 @@
+# Ancient Amino Acid Sets Enable Stable Protein Folds
+
+[![DOI](https://zenodo.org/badge/1078066711.svg)](https://doi.org/10.5281/zenodo.23261170)
+
 ## Ancient Protein Design Scripts
 
 A comprehensive pipeline for designing and analyzing proteins using an ancient (reduced) amino acid alphabet. This repository contains scripts for protein structure generation, sequence design with restricted amino acid sets, structural validation, as well as standard 20-amino acid designs (for comparison).
